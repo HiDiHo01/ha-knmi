@@ -2,32 +2,93 @@
     "config": {
         "step": {
             "user": {
-                "title": "KNMI weer",
-                "description": "Aanmelden voor een gratis API key: https://weerlive.nl/delen.php",
+                "title": "KNMI Weer",
+                "description": "Aanmelden voor een gratis API key: https://weerlive.nl/api/toegang/account.php",
                 "data": {
-                    "api_key": "API key",
+                    "api_key": "API sleutel",
                     "latitude": "Breedtegraad",
                     "longitude": "Lengtegraad",
-                    "name": "Naam"
+                    "name": "Plaats / Naam",
+                    "refresh_interval": "Vernieuw interval (sec)"
                 }
             }
         },
         "error": {
-            "api_key": "De opgegeven API key is incorrect."
+            "api_key": "De opgegeven API-sleutel is ongeldig",
+            "daily_limit": "De dagelijkse limiet van de API-sleutel is overschreden, probeer het morgen opnieuw",
+            "general": "Onbekende fout bij het ophalen van weergegevens, probeer het later opnieuw"
         },
         "abort": {
-            "single_instance_allowed": "Slechts een enkel exemplaar is toegestaan."
+            "single_instance_allowed": "Al geconfigureerd. Slechts \u00e9\u00e9n configuratie mogelijk."
         }
     },
     "options": {
         "step": {
             "user": {
+                "title": "Instellingen",
+                "description": "Opties voor KNMI Weer:",
                 "data": {
                     "binary_sensor": "Binaire sensor ingeschakeld",
                     "sensor": "Sensor ingeschakeld",
-                    "weather": "Weer ingeschakeld"
+                    "weather": "Weer ingeschakeld",
+                    "refresh_interval": "Vernieuw interval (in seconden)"
+                },
+                "data_description": {
+                    "binary_sensor": "Zet de binaire sensoren aan / uit",
+                    "sensor": "Zet de sensoren aan / uit",
+                    "weather": "Zet de weer semsor aan / uit",
+                    "refresh_interval": "Zet de vernieuw interval minimaal op 600 seconden."
                 }
             }
         }
-    }
+    },
+    "entity_component": {
+        "binary_sensor.knmi_zon": {
+            "name": "Zon",
+            "state": {
+                "True": "Boven de horizon",
+                "False": "Onder de horizon",
+                "on": "Boven de horizon",
+                "off": "Onder de horizon",
+                "above_horizon": "Boven de horizon",
+                "below_horizon": "Onder de horizon"
+            }
+        },
+        "knmi_zon": {
+            "name": "Zon",
+            "state": {
+                "on": "Boven de horizon",
+                "off": "Onder de horizon",
+                "above_horizon": "Boven de horizon",
+                "below_horizon": "Onder de horizon"
+            }
+        },
+        "_": {
+            "state": {
+                "on": "Boven de horizon",
+                "off": "Onder de horizon",
+                "above_horizon": "Boven de horizon",
+                "below_horizon": "Onder de horizon"
+            }
+        },
+        "sun": {
+            "name": "Zon",
+            "state": {
+                "on": "Boven de horizon",
+                "off": "Onder de horizon",
+                "above_horizon": "Boven de horizon",
+                "below_horizon": "Onder de horizon"
+            }
+        },
+        "Zon": {
+            "name": "Zon",
+            "state": {
+                "on": "Boven de horizon",
+                "off": "Onder de horizon",
+                "above_horizon": "Boven de horizon",
+                "below_horizon": "Onder de horizon"
+            }
+        }
+    },
+    "title": "KNMI Weer"
 }
