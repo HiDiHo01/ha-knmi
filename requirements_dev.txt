@@ -1,2 +1,4 @@
 homeassistant
 pyyaml>=5.4 # not directly required, pinned by Snyk to avoid a vulnerability
+cryptography>=44.0.1 # not directly required, pinned by Snyk to avoid a vulnerability
+jinja2>=3.1.6 # not directly required, pinned by Snyk to avoid a vulnerability
