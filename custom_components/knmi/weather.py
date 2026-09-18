@@ -1,160 +1,44 @@
 """Weather platform for knmi."""
 # weather.py
 
-from datetime import datetime, timedelta
-from typing import Any
+import logging
+from datetime import timedelta, timezone
 
-import pytz
-import requests
-from homeassistant.components.sensor import SensorEntity
 from homeassistant.components.weather import (
-    ATTR_FORECAST_CONDITION, ATTR_FORECAST_PRECIPITATION_PROBABILITY,
-    ATTR_FORECAST_TEMP, ATTR_FORECAST_TEMP_LOW, ATTR_FORECAST_TIME,
-    ATTR_FORECAST_WIND_BEARING, ATTR_FORECAST_WIND_SPEED)
-from homeassistant.components.weather import DOMAIN as SENSOR_DOMAIN
-from homeassistant.components.weather import (Forecast, WeatherEntity,
-                                              WeatherEntityDescription,
-                                              WeatherEntityFeature)
+    ATTR_FORECAST_CONDITION,
+    ATTR_FORECAST_NATIVE_TEMP,
+    ATTR_FORECAST_NATIVE_TEMP_LOW,
+    ATTR_FORECAST_NATIVE_WIND_SPEED,
+    ATTR_FORECAST_PRECIPITATION_PROBABILITY,
+    ATTR_FORECAST_TIME,
+    ATTR_FORECAST_WIND_BEARING,
+    Forecast,
+    WeatherEntity,
+)
+from homeassistant.components.weather.const import WeatherEntityFeature
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_NAME, PERCENTAGE, UnitOfLength,
-                                 UnitOfPressure, UnitOfSpeed,
-                                 UnitOfTemperature)
+from homeassistant.const import (
+    CONF_NAME,
+    UnitOfLength,
+    UnitOfPressure,
+    UnitOfSpeed,
+    UnitOfTemperature,
+    UnitOfVolumetricFlux,
+)
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt
 
-from .api import KnmiApiClient
-from .const import _LOGGER, API_TIMEZONE, ATTRIBUTION, CONDITIONS_MAP, DOMAIN
+from .const import ATTRIBUTION, CONDITIONS_MAP, DOMAIN
 from .coordinator import KnmiDataUpdateCoordinator
-from .entity import KnmiEntity
-from .exceptions import KnmiApiException
+from .utils import safe_float, safe_int
 
-# Define the WeatherEntityDescription for the weather entity
-WEATHER_DESCRIPTION = [
-    WeatherEntityDescription(
-        key="temp",
-        name="Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d0weer",
-        name="Condition",
-    ),
-    WeatherEntityDescription(
-        key="luchtd",
-        name="Pressure",
-        unit_of_measurement=UnitOfPressure.HPA,
-    ),
-    WeatherEntityDescription(
-        key="lv",
-        name="Humidity",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="windkmh",
-        name="Wind Speed",
-        unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
-    ),
-    WeatherEntityDescription(
-        key="windr",
-        name="Wind Direction",
-    ),
-    WeatherEntityDescription(
-        key="zicht",
-        name="Visibility",
-        unit_of_measurement=UnitOfLength.KILOMETERS,
-    ),
-    WeatherEntityDescription(
-        key="d0windr",
-        name="Today's Wind Direction",
-    ),
-    WeatherEntityDescription(
-        key="d0windkmh",
-        name="Today's Wind Speed",
-        unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
-    ),
-    WeatherEntityDescription(
-        key="d0tmax",
-        name="Today's Max Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d0tmin",
-        name="Today's Min Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d0neerslag",
-        name="Today's Precipitation",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="d0zon",
-        name="Today's Sun Chance",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="d1windr",
-        name="Tomorrow's Wind Direction",
-    ),
-    WeatherEntityDescription(
-        key="d1windkmh",
-        name="Tomorrow's Wind Speed",
-        unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
-    ),
-    WeatherEntityDescription(
-        key="d1tmax",
-        name="Tomorrow's Max Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d1tmin",
-        name="Tomorrow's Min Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d1neerslag",
-        name="Tomorrow's Precipitation",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="d1zon",
-        name="Tomorrow's Sun Chance",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="d2windr",
-        name="Day After Tomorrow's Wind Direction",
-    ),
-    WeatherEntityDescription(
-        key="d2windkmh",
-        name="Day After Tomorrow's Wind Speed",
-        unit_of_measurement=UnitOfSpeed.KILOMETERS_PER_HOUR,
-    ),
-    WeatherEntityDescription(
-        key="d2tmax",
-        name="Day After Tomorrow's Max Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d2tmin",
-        name="Day After Tomorrow's Min Temperature",
-        unit_of_measurement=UnitOfTemperature.CELSIUS,
-    ),
-    WeatherEntityDescription(
-        key="d2neerslag",
-        name="Day After Tomorrow's Precipitation",
-        unit_of_measurement=PERCENTAGE,
-    ),
-    WeatherEntityDescription(
-        key="d2zon",
-        name="Day After Tomorrow's Sun Chance",
-        unit_of_measurement=PERCENTAGE,
-    ),
-]
+_LOGGER: logging.Logger = logging.getLogger(__name__)
+FORECAST_DATE_FORMAT = "%Y-%m-%d"
 
 
-class KnmiWeather(WeatherEntity, SensorEntity):
+class KnmiWeather(CoordinatorEntity[KnmiDataUpdateCoordinator], WeatherEntity):
     """Defines a KNMI weather entity."""
 
     _attr_attribution = ATTRIBUTION
@@ -162,6 +46,7 @@ class KnmiWeather(WeatherEntity, SensorEntity):
     _attr_native_temperature_unit = UnitOfTemperature.CELSIUS
     _attr_native_visibility_unit = UnitOfLength.KILOMETERS
     _attr_native_wind_speed_unit = UnitOfSpeed.KILOMETERS_PER_HOUR
+    _attr_native_precipitation_unit = UnitOfVolumetricFlux.MILLIMETERS_PER_HOUR
     _attr_supported_features = WeatherEntityFeature.FORECAST_DAILY
 
     def __init__(
@@ -170,41 +55,39 @@ class KnmiWeather(WeatherEntity, SensorEntity):
         coordinator: KnmiDataUpdateCoordinator,
         entry_id: str,
     ):
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self.conf_name = conf_name.capitalize()
         self._name = conf_name.capitalize()
         self.entry_id = entry_id
         self.entry_name: str = conf_name
-        self.entity_id = f"{SENSOR_DOMAIN}.{conf_name}"
-        self._attr_unique_id = f"{entry_id}-{conf_name}"
+        self._attr_unique_id = f"{entry_id}_{conf_name}"
+        self._attr_name = f"Weer {conf_name}"
         self._attr_device_info = coordinator.device_info
         self._attr_supported_features = WeatherEntityFeature.FORECAST_DAILY
-        self._attr_condition = self.map_condition("image")
-
-    @property
-    def name(self) -> str:
-        """Return the name of the sensor."""
-        return f"Weer {self.entry_name}"
+        self._logger = logging.getLogger(__name__)
 
     def map_condition(self, key: str | None) -> str | None:
         """Map weather conditions from KNMI to HA."""
+        if key is None:
+            return None
+
         value = self.coordinator.get_value(key, str)
-        if value == "":
+        if not value:
             return None
 
         try:
-            return CONDITIONS_MAP[value]
+            return CONDITIONS_MAP[str(value)]
         except KeyError:
             _LOGGER.error(
                 "Weather condition %s (for %s) is unknown, please raise a bug",
                 value,
                 key,
             )
-        return None
+            return None
 
     def get_wind_bearing(
         self, wind_dir_key: str, wind_dir_degree_key: str
-    ) -> float | None:
+    ) -> float | str | None:
         """Get the wind bearing, handle variable (VAR) direction as None."""
         wind_dir = self.coordinator.get_value(wind_dir_key)
         if wind_dir == "VAR":
@@ -216,192 +99,123 @@ class KnmiWeather(WeatherEntity, SensorEntity):
         return self.coordinator.get_value(wind_dir_degree_key, int)
 
     @property
-    def condition(self) -> str | None:
-        """Return the current condition."""
+    def condition(self) -> str | None:  # type: ignore[override]
+        """Return the current weather condition."""
         return self.map_condition("image")
 
     @property
-    def native_temperature(self) -> float | None:
+    def native_temperature(self) -> float | None:  # type: ignore[override]
         """Return the temperature in native units."""
-        return self.coordinator.get_value("temp", float)
+        value = self.coordinator.get_value("temp", float)
+        return safe_float(value)
 
     @property
-    def native_pressure(self) -> float | None:
+    def native_pressure(self) -> float | None:  # type: ignore[override]
         """Return the pressure in native units."""
-        return self.coordinator.get_value("luchtd", float)
+        value = self.coordinator.get_value("luchtd", float)
+        return safe_float(value)
 
     @property
-    def humidity(self) -> int | None:
+    def humidity(self) -> int | None:  # type: ignore[override]
         """Return the humidity in native units."""
-        return self.coordinator.get_value("lv", int)
+        value = self.coordinator.get_value("lv", int)
+        if value is None:
+            return None
+        try:
+            return safe_int(value)
+        except (ValueError, TypeError):
+            _LOGGER.error(
+                "Failed to convert humidity value '%s' to int for %s, returning None",
+                value,
+                "lv",
+            )
+            return None
 
     @property
-    def native_wind_speed(self) -> float | None:
+    def native_wind_speed(self) -> float | None:  # type: ignore[override]
         """Return the wind speed in native units."""
-        return self.coordinator.get_value("windkmh", float)
+        value = self.coordinator.get_value("windkmh", float)
+        return safe_float(value)
 
     @property
-    def wind_bearing(self) -> float | str | None:
-        """Return the wind bearing."""
+    def wind_bearing(self) -> float | str | None:  # type: ignore[override]
+        """Return wind bearing."""
         return self.get_wind_bearing("windr", "windrgr")
 
     @property
-    def native_visibility(self) -> int | None:
+    def native_visibility(self) -> int | None:  # type: ignore[override]
         """Return the visibility in native units."""
-        return self.coordinator.get_value("zicht", int)
+        value = self.coordinator.get_value("zicht", int)
+        return safe_int(value)
 
-    @property
-    def forecast(self) -> list[Forecast] | None:
-        """Return the forecast in native units."""
-        forecast = []
-        timezone = pytz.timezone(API_TIMEZONE)
-        today = dt.as_utc(
-            dt.now(timezone).replace(hour=0, minute=0, second=0, microsecond=0)
-        )
+    def _forecast(self) -> list[Forecast] | None:
+        """Generate a daily weather forecast for the next three days."""
+        forecast: list[Forecast] = []
+        FORCAST_DAYS = 3
+        rfc3339_format = "%Y-%m-%dT%H:%M:%SZ"
 
-        for i in range(0, 3):
-            date = today + timedelta(days=i)
-            condition = self.map_condition(f"d{i}weer")
-            wind_bearing = self.get_wind_bearing(f"d{i}windr", f"d{i}windrgr")
-            temp_min = self.coordinator.get_value(f"d{i}tmin", int)
-            temp_max = self.coordinator.get_value(f"d{i}tmax", int)
-            precipitation_probability = self.coordinator.get_value(
-                f"d{i}neerslag", int
-            )
-            wind_speed = self.coordinator.get_value(f"d{i}windkmh", float)
-            sun_chance = self.coordinator.get_value(f"d{i}zon", int)
-            wind_speed_bft = self.coordinator.get_value(f"d{i}windk", int)
-            next_day = {
-                ATTR_FORECAST_TIME: date.isoformat(),
+        today = dt.start_of_local_day(dt.now())
+
+        for i in range(FORCAST_DAYS):
+            # Calculate the utc date for the forecast
+            date = today.astimezone(timezone.utc) + timedelta(days=i)
+            # Format the date as RFC 3339
+            date_str: str = date.strftime(rfc3339_format)
+            condition: str | None = self.map_condition(f"d{i}weer")
+            wind_bearing: float | str | None = self.get_wind_bearing(f"d{i}windr", f"d{i}windrgr")
+            temp_min_raw = self.coordinator.get_value(f"d{i}tmin", float)
+            temp_min: float | int | None = safe_float(temp_min_raw) if temp_min_raw is not None else None
+            temp_max_raw = self.coordinator.get_value(f"d{i}tmax", float)
+            temp_max: float | int | None = safe_float(temp_max_raw) if temp_max_raw is not None else None
+            precipitation_probability_raw = self.coordinator.get_value(f"d{i}neerslag", int)
+            precipitation_probability: int | None = safe_int(
+                precipitation_probability_raw) if precipitation_probability_raw is not None else None
+            wind_speed_raw = self.coordinator.get_value(f"d{i}windkmh", int)
+            wind_speed: int | None = safe_int(wind_speed_raw) if wind_speed_raw is not None else None
+
+            next_day: Forecast = {
+                ATTR_FORECAST_TIME: date_str,
                 ATTR_FORECAST_CONDITION: condition,
-                ATTR_FORECAST_TEMP_LOW: temp_min,
-                ATTR_FORECAST_TEMP: temp_max,
+                ATTR_FORECAST_NATIVE_TEMP_LOW: temp_min,
+                ATTR_FORECAST_NATIVE_TEMP: temp_max,
                 ATTR_FORECAST_PRECIPITATION_PROBABILITY: precipitation_probability,
                 ATTR_FORECAST_WIND_BEARING: wind_bearing,
-                ATTR_FORECAST_WIND_SPEED: wind_speed,
-                # Not officially supported, but nice additions.
-                "wind_speed_bft": wind_speed_bft,
-                "sun_chance": sun_chance,
+                ATTR_FORECAST_NATIVE_WIND_SPEED: wind_speed,
             }
             forecast.append(next_day)
 
         return forecast
 
-    def update_from_api_data(self, api_data: dict):
-        self._attr_temperature = float(api_data["temp"])
-        self._attr_wind_speed = float(api_data["windkmh"])
-        self._attr_humidity = int(api_data["lv"])
-        self._attr_wind_direction = api_data["windr"]
-        self._attr_condition = self.map_condition("image")
-        self.temperature = float(api_data["temp"])
-        self.wind_speed = float(api_data["windkmh"])
-        self.humidity = int(api_data["lv"])
-        self.wind_direction = api_data["windr"]
-        self.condition = self.map_condition("image")
-
+    @property
+    def forecast(self) -> list[Forecast] | None:
+        """Return the forecast array."""
+        return self._forecast()
 
     async def async_forecast_daily(self) -> list[Forecast] | None:
-        """Return the daily forecast in native units.
+        """Return the daily forecast in native units."""
+        return self._forecast()
 
-        Only implement this method if `WeatherEntityFeature.FORECAST_DAILY` is set.
-        """
-        if WeatherEntityFeature.FORECAST_DAILY not in self.supported_features:
-            return None
 
-        try:
-            daily_forecast_data = await self.coordinator.api.async_fetch_daily_forecast_data()
-            return self.parse_forecast_data(daily_forecast_data)
-        except KnmiApiException as e:
-            _LOGGER.error("Error fetching daily forecast data: %s", e)
-            return None
-
-    def parse_forecast_data(self, forecast_data: list[dict[str, Any]]) -> list[Forecast]:
-        forecast = []
-
-        for entry in forecast_data:
-            date_str = entry["date"]
-            condition = entry["condition"]
-            temp_min = entry["temp_min"]
-            temp_max = entry["temp_max"]
-            precipitation_probability = entry["precipitation_probability"]
-            wind_bearing = entry["wind_bearing"]
-            wind_speed = entry["wind_speed"]
-            sun_chance = entry["sun_chance"]
-            wind_speed_bft = entry["wind_speed_bft"]
-
-            date = datetime.strptime(date_str, "%Y-%m-%d").date()
-
-            forecast_entry = {
-                ATTR_FORECAST_TIME: date.isoformat(),
-                ATTR_FORECAST_CONDITION: condition,
-                ATTR_FORECAST_TEMP_LOW: temp_min,
-                ATTR_FORECAST_TEMP: temp_max,
-                ATTR_FORECAST_PRECIPITATION_PROBABILITY: precipitation_probability,
-                ATTR_FORECAST_WIND_BEARING: wind_bearing,
-                ATTR_FORECAST_WIND_SPEED: wind_speed,
-                # Not officially supported, but nice additions.
-                "wind_speed_bft": wind_speed_bft,
-                "sun_chance": sun_chance,
-            }
-            forecast.append(forecast_entry)
-
-        return forecast
-
-async def fetch_and_process_daily_forecast(api_client: KnmiApiClient):
-    try:
-        daily_forecast_data = await api_client.async_fetch_daily_forecast_data()
-        # Process the daily_forecast_data here
-        for forecast_entry in daily_forecast_data:
-            date = forecast_entry["date"]
-            condition = forecast_entry["condition"]
-            temp_min = forecast_entry["temp_min"]
-            temp_max = forecast_entry["temp_max"]
-            precipitation_probability = forecast_entry["precipitation_probability"]
-            wind_bearing = forecast_entry["wind_bearing"]
-            wind_speed = forecast_entry["wind_speed"]
-            #print(f"Date: {date}, Condition: {condition}, Temp Min: {temp_min}, Temp Max: {temp_max}, Precipitation Probability: {precipitation_probability}, Wind Bearing: {wind_bearing}, Wind Speed: {wind_speed}")
-    except KnmiApiException as e:
-        #print(f"Error fetching daily forecast data: {e}")
-        raise Exception(f"Error fetching daily forecast data: {e}")
-
-async def fetch_daily_forecast_data(self) -> list[dict[str, Any]]:
-    try:
-        response = await self.coordinator.api.async_fetch_daily_forecast_data()
-        data = response.json()
-
-        daily_forecast_data = []
-        for entry in data["forecast"]:
-            date_str = entry["date"]
-            condition = entry["condition"]
-            temp_min = entry["temp_min"]
-            temp_max = entry["temp_max"]
-            precipitation_probability = entry["precipitation_probability"]
-            wind_bearing = entry["wind_bearing"]
-            wind_speed = entry["wind_speed"]
-
-            date = datetime.strptime(date_str, "%Y-%m-%d").date()
-
-            forecast_entry = {
-                "date": date,
-                "condition": condition,
-                "temp_min": temp_min,
-                "temp_max": temp_max,
-                "precipitation_probability": precipitation_probability,
-                "wind_bearing": wind_bearing,
-                "wind_speed": wind_speed,
-            }
-            daily_forecast_data.append(forecast_entry)
-
-        return daily_forecast_data
-
-    except requests.exceptions.RequestException as e:
-        raise Exception(f"Error fetching daily forecast data: {e}")
-
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
-    """Set up KNMI weather based on a config entry."""
-    coordinator = hass.data[DOMAIN][entry.entry_id]
-    conf_name = entry.data.get(CONF_NAME, hass.config.location_name)
-    # async_add_entities([KnmiWeather(conf_name, coordinator, entry.entry_id)])
-    async_add_entities(
-        [KnmiWeather(conf_name=entry.data.get(CONF_NAME, hass.config.location_name), coordinator=hass.data[DOMAIN][entry.entry_id], entry_id=entry.entry_id)]
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback
+) -> None:
+    """Set up KNMI weather entity from a config entry."""
+    coordinator: KnmiDataUpdateCoordinator = hass.data[DOMAIN][entry.entry_id]
+    conf_name: str = entry.data.get(CONF_NAME, hass.config.location_name)
+    _LOGGER.debug(
+        "Setting up KNMI weather entity for entry %s with name '%s'",
+        entry.entry_id,
+        conf_name,
     )
+
+    # Create an instance of KnmiWeather
+    knmi_weather = KnmiWeather(
+        conf_name=conf_name,
+        coordinator=coordinator,
+        entry_id=entry.entry_id
+    )
+
+    # Add the created entity to Home Assistant
+    async_add_entities([knmi_weather])

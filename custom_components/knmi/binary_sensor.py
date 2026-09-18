@@ -1,14 +1,15 @@
 """KNMI Binary Sensor Platform."""
-# binary_sensor.py
 
-from datetime import datetime
-from typing import Any, Callable
+from collections.abc import Callable, Mapping
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
-import pytz
 from homeassistant.components.binary_sensor import DOMAIN as SENSOR_DOMAIN
-from homeassistant.components.binary_sensor import (BinarySensorDeviceClass,
-                                                    BinarySensorEntity)
-from homeassistant.components.sensor import SensorEntityDescription
+from homeassistant.components.binary_sensor import (
+    BinarySensorDeviceClass,
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 from homeassistant.core import HomeAssistant
@@ -20,7 +21,10 @@ from .const import API_TIMEZONE, ATTRIBUTION, DOMAIN
 from .coordinator import KnmiDataUpdateCoordinator
 
 
-class KnmiBinarySensor(CoordinatorEntity[KnmiDataUpdateCoordinator], BinarySensorEntity):
+class KnmiBinarySensor(
+    CoordinatorEntity[KnmiDataUpdateCoordinator],
+    BinarySensorEntity,
+):
     """Defines a KNMI binary sensor."""
 
     _attr_has_entity_name = True
@@ -30,31 +34,96 @@ class KnmiBinarySensor(CoordinatorEntity[KnmiDataUpdateCoordinator], BinarySenso
         conf_name: str,
         coordinator: KnmiDataUpdateCoordinator,
         entry_id: str,
-        description: SensorEntityDescription,
+        description: BinarySensorEntityDescription,
         is_on_func: Callable[[KnmiDataUpdateCoordinator], bool],
-        extra_attributes_func: Callable[[KnmiDataUpdateCoordinator], dict[str, Any] | None],
+        extra_attributes_func: Callable[[KnmiDataUpdateCoordinator], Mapping[str, object]],
     ) -> None:
         """Initialize KNMI binary sensor."""
         super().__init__(coordinator=coordinator)
 
-        self.entity_id = (
-            f"{SENSOR_DOMAIN}.{conf_name}_{description.name}".lower()
-        )
+        self.entity_id = f"{SENSOR_DOMAIN}.{conf_name}_{description.name}".lower()
         self.entity_description = description
-        self._attr_unique_id = f"{entry_id}-{conf_name} {self.name}"
+        self._attr_unique_id = f"{entry_id}-{conf_name}-{description.name}"
         self._attr_device_info = coordinator.device_info
         self._is_on_func = is_on_func
         self._extra_attributes_func = extra_attributes_func
 
     @property
-    def is_on(self) -> bool | None:
+    def is_on(self) -> bool | None:  # type: ignore[override]
         """Return True if the entity is on."""
-        return self._is_on_func(self.coordinator)
+        if self.coordinator.data is None:
+            return None
+        try:
+            return self._is_on_func(self.coordinator)
+        except Exception:
+            return None
 
     @property
-    def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Return entity specific state attributes."""
-        return self._extra_attributes_func(self.coordinator)
+    def extra_state_attributes(self) -> dict[str, object] | None:  # type: ignore[override]
+        """Return entity-specific state attributes for Home Assistant."""
+        if self.coordinator.data is None:
+            return None
+        try:
+            # Convert internal object mapping to HA-compliant Any mapping
+            return {k: v for k, v in self._extra_attributes_func(self.coordinator).items()}
+        except Exception:
+            return None
+
+
+# ---------------- Internal helpers (use object) ---------------- #
+
+def _time_as_datetime(time_val: float | int | str) -> datetime:
+    """Parse a time from float/int/str like '08:13', 813, or 8.13 to a timezone-aware UTC datetime."""
+    # Ensure string format "HH:MM"
+    time_str = str(time_val)
+    if ":" not in time_str:
+        # Convert numeric hour/minute like 813 -> "08:13"
+        time_str = f"{int(time_str):04}"
+        time_str = f"{time_str[:2]}:{time_str[2:]}"
+
+    hour, minute = map(int, time_str.split(":"))
+    local_tz = ZoneInfo(API_TIMEZONE)
+    now = dt.now(local_tz)
+    local_dt = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    return dt.as_utc(local_dt)
+
+
+def _get_sunrise_sunset(
+    coordinator: KnmiDataUpdateCoordinator,
+) -> tuple[datetime, datetime] | None:
+    """Retrieve sunrise and sunset times from the coordinator, handling float/int/str."""
+    sup = coordinator.get_value("sup")
+    sunder = coordinator.get_value("sunder")
+
+    if sup is None or sunder is None:
+        return None
+
+    try:
+        sunrise = _time_as_datetime(str(sup))
+        sunset = _time_as_datetime(str(sunder))
+    except (ValueError, TypeError):
+        return None
+
+    return sunrise, sunset
+
+
+def sun_up_duration(coordinator: KnmiDataUpdateCoordinator) -> timedelta | None:
+    """Return duration of sun being above the horizon."""
+    times = _get_sunrise_sunset(coordinator)
+    if times is None:
+        return None
+    sunrise, sunset = times
+    return sunset - sunrise
+
+
+def is_sun_up(coordinator: KnmiDataUpdateCoordinator) -> bool:
+    """Return True if sun is currently above the horizon."""
+    times = _get_sunrise_sunset(coordinator)
+    if times is None:
+        return False
+    sunrise, sunset = times
+    now_utc = dt.utcnow().replace(tzinfo=timezone.utc)
+    return sunrise < now_utc < sunset
 
 
 def is_alarm_on(coordinator: KnmiDataUpdateCoordinator) -> bool:
@@ -62,72 +131,68 @@ def is_alarm_on(coordinator: KnmiDataUpdateCoordinator) -> bool:
     value = coordinator.get_value("alarm", int)
     return value == 1
 
-def is_sun_up(coordinator: KnmiDataUpdateCoordinator) -> bool:
-    """Return True if the sun is currently up."""
-    sup = coordinator.get_value("sup", str)
-    sunder = coordinator.get_value("sunder", str)
 
-    if sup is None or sunder is None:
-        return None
+def get_alarm_attributes(coordinator: KnmiDataUpdateCoordinator) -> Mapping[str, object]:
+    """Return internal attributes for the alarm sensor."""
+    if not is_alarm_on(coordinator):
+        return {}
 
-    sunrise = _time_as_datetime(sup)
-    sunset = _time_as_datetime(sunder)
+    timestamp_val = coordinator.get_value("timestamp")
+    timestamp: datetime | None = None
 
-    now = dt.utcnow()
+    if isinstance(timestamp_val, (int, float)):
+        timestamp = datetime.fromtimestamp(int(timestamp_val), tz=timezone.utc)
+    elif isinstance(timestamp_val, str) and timestamp_val.isdigit():
+        timestamp = datetime.fromtimestamp(int(timestamp_val), tz=timezone.utc)
 
-    return sunrise < now < sunset
+    alarmtxt = coordinator.get_value("alarmtxt")
 
-
-def _time_as_datetime(time: str) -> datetime:
-    """Parse a time from a string like "08:13" to a datetime in UTC."""
-    time_array = time.split(":")
-    hour, minute = map(int, time_array)
-    timezone = pytz.timezone(API_TIMEZONE)
-    now = dt.now(timezone)
-    time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-    return dt.as_utc(time)
+    return {
+        "Timestamp": timestamp if timestamp else "",
+        "Waarschuwing": alarmtxt or "",
+        "attribution": ATTRIBUTION,
+    }
 
 
-def get_alarm_attributes(coordinator: KnmiDataUpdateCoordinator) -> dict[str, Any]:
-    """Return entity specific state attributes for the alarm sensor."""
-    if is_alarm_on(coordinator):
-        timestamp_int = int(coordinator.get_value("timestamp"))
-        timestamp = datetime.fromtimestamp(timestamp_int).strftime("%Y-%m-%d %H:%M:%S")
-        alarmtxt = coordinator.get_value("alarmtxt")
+def get_sun_attributes(
+    coordinator: KnmiDataUpdateCoordinator,
+) -> dict[str, object]:
+    """Return entity-specific state attributes for the sun sensor, handling float/int/str."""
+    attributes: dict[str, object] = {}
 
-        attributes = {
-            "Timestamp": timestamp,
-            "Waarschuwing": alarmtxt,
-            "attribution": ATTRIBUTION
-        }
-        
-        return attributes
-
-
-def get_sun_attributes(coordinator: KnmiDataUpdateCoordinator) -> dict[str, Any] | None:
-    """Return entity specific state attributes for the sun sensor."""
-    attributes = {}
-
-    sup = coordinator.get_value("sup", str)
-    sunder = coordinator.get_value("sunder", str)
+    sup = coordinator.get_value("sup")
+    sunder = coordinator.get_value("sunder")
+    supdur = sun_up_duration(coordinator)
     d0zon = coordinator.get_value("d0zon", int)
     d1zon = coordinator.get_value("d1zon", int)
     d2zon = coordinator.get_value("d2zon", int)
 
     if sup is not None:
-        attributes["Zonsopkomst"] = _time_as_datetime(sup).isoformat()
+        try:
+            attributes["Zonsopkomst"] = _time_as_datetime(str(sup)).isoformat()
+        except (ValueError, TypeError):
+            pass
     if sunder is not None:
-        attributes["Zonsondergang"] = _time_as_datetime(sunder).isoformat()
+        try:
+            attributes["Zonsondergang"] = _time_as_datetime(str(sunder)).isoformat()
+        except (ValueError, TypeError):
+            pass
+    if supdur is not None:
+        hours, remainder = divmod(supdur.seconds, 3600)
+        minutes = remainder // 60
+        formatted_duration = f"{hours:02}:{minutes:02}"
+        attributes["Duur van zonlicht"] = formatted_duration
     if d0zon is not None:
-        attributes["Zonkans vandaag"] = d0zon
+        attributes["Zonkans vandaag"] = str(d0zon)
     if d1zon is not None:
-        attributes["Zonkans morgen"] = d1zon
+        attributes["Zonkans morgen"] = str(d1zon)
     if d2zon is not None:
-        attributes["Zonkans overmorgen"] = d2zon
+        attributes["Zonkans overmorgen"] = str(d2zon)
 
     attributes["attribution"] = ATTRIBUTION
-
     return attributes
+
+# ---------------- Setup ---------------- #
 
 
 async def async_setup_entry(
@@ -135,37 +200,50 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up KNMI binary sensors based on a config entry."""
+    """Set up KNMI binary sensors from config entry."""
     conf_name = entry.data.get(CONF_NAME, hass.config.location_name)
     coordinator = hass.data[DOMAIN][entry.entry_id]
 
-    async_add_entities(
-        [
-            KnmiBinarySensor(
-                conf_name=conf_name,
-                coordinator=coordinator,
-                entry_id=entry.entry_id,
-                description=SensorEntityDescription(
-                    key="alarm",
-                    name="Waarschuwing",
-                    icon="mdi:alert",
-                    device_class=BinarySensorDeviceClass.SAFETY,
-                ),
-                is_on_func=is_alarm_on,
-                extra_attributes_func=get_alarm_attributes,
+    BINARY_SENSOR_TYPES: tuple[
+        tuple[
+            BinarySensorEntityDescription,
+            Callable[[KnmiDataUpdateCoordinator], bool],
+            Callable[[KnmiDataUpdateCoordinator], Mapping[str, object]],
+        ],
+        ...
+    ] = (
+        (
+            BinarySensorEntityDescription(
+                key="alarm",
+                name="Waarschuwing",
+                translation_key="alert",
+                icon="mdi:alert",
+                device_class=BinarySensorDeviceClass.SAFETY,
             ),
-            KnmiBinarySensor(
-                conf_name=conf_name,
-                coordinator=coordinator,
-                entry_id=entry.entry_id,
-                description=SensorEntityDescription(
-                    key="sun",
-                    name="Zon",
-                    icon="mdi:white-balance-sunny",
-                    device_class=BinarySensorDeviceClass.RUNNING,
-                ),
-                is_on_func=is_sun_up,
-                extra_attributes_func=get_sun_attributes,
+            is_alarm_on,
+            get_alarm_attributes,
+        ),
+        (
+            BinarySensorEntityDescription(
+                key="sun",
+                name="Zon",
+                translation_key="sun",
             ),
-        ]
+            is_sun_up,
+            get_sun_attributes,
+        ),
     )
+
+    entities = [
+        KnmiBinarySensor(
+            conf_name=conf_name,
+            coordinator=coordinator,
+            entry_id=entry.entry_id,
+            description=description,
+            is_on_func=is_on_func,
+            extra_attributes_func=extra_attributes_func,
+        )
+        for description, is_on_func, extra_attributes_func in BINARY_SENSOR_TYPES
+    ]
+
+    async_add_entities(entities)

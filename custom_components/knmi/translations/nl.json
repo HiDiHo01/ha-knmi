@@ -1,15 +1,30 @@
 {
+    "title": "KNMI Weer",
     "config": {
         "step": {
             "user": {
                 "title": "KNMI Weer",
                 "description": "Aanmelden voor een gratis API key: https://weerlive.nl/api/toegang/account.php",
                 "data": {
-                    "api_key": "API sleutel",
+                    "name": "Naam / Plaats",
                     "latitude": "Breedtegraad",
                     "longitude": "Lengtegraad",
-                    "name": "Plaats / Naam",
+                    "location": "Plaats",
+                    "api_key": "API sleutel",
                     "refresh_interval": "Vernieuw interval (sec)"
+                }
+            },
+            "reconfigure": {
+                "title": "KNMI Weer",
+                "description": "Aanmelden voor een gratis API key: https://weerlive.nl/api/toegang/account.php",
+                "data": {
+                    "name": "Naam / Plaats",
+                    "latitude": "Breedtegraad",
+                    "longitude": "Lengtegraad",
+                    "location": "Plaats",
+                    "api_key": "API sleutel",
+                    "refresh_interval": "Vernieuw interval (sec)",
+                    "scan_interval": "Scan interval (sec)"
                 }
             }
         },
@@ -42,53 +57,146 @@
             }
         }
     },
-    "entity_component": {
-        "binary_sensor.knmi_zon": {
-            "name": "Zon",
-            "state": {
-                "True": "Boven de horizon",
-                "False": "Onder de horizon",
-                "on": "Boven de horizon",
-                "off": "Onder de horizon",
-                "above_horizon": "Boven de horizon",
-                "below_horizon": "Onder de horizon"
+    "entity": {
+        "binary_sensor": {
+            "sun": {
+                "name": "Zon",
+                "state": {
+                    "on": "Boven de horizon",
+                    "off": "Onder de horizon"
+                },
+                "state_attributes": {
+                    "sunrise": {
+                        "name": "Zonsopkomst"
+                    },
+                    "sunset": {
+                        "name": "Zonsondergang"
+                    },
+                    "sun_chance0": {
+                        "name": "Zonkans vandaag"
+                    },
+                    "sun_chance1": {
+                        "name": "Zonkans morgen"
+                    },
+                    "sun_chance2": {
+                        "name": "Zonkans overmorgen"
+                    }
+                }
+            },
+            "alarm": {
+                "name": "Waarschuwing",
+                "state_attributes": {
+                    "title": {
+                        "name": "Titel"
+                    },
+                    "description": {
+                        "name": "Beschrijving"
+                    },
+                    "code": {
+                        "name": "Code",
+                        "state": {
+                            "groen": "Groen",
+                            "geel": "Geel",
+                            "oranje": "Oranje",
+                            "rood": "Rood"
+                        }
+                    },
+                    "next_code": {
+                        "name": "Volgende code",
+                        "state": {
+                            "groen": "Groen",
+                            "geel": "Geel",
+                            "oranje": "Oranje",
+                            "rood": "Rood"
+                        }
+                    },
+                    "timestamp": {
+                        "name": "Volgende waarschuwing"
+                    }
+                }
             }
         },
-        "knmi_zon": {
-            "name": "Zon",
-            "state": {
-                "on": "Boven de horizon",
-                "off": "Onder de horizon",
-                "above_horizon": "Boven de horizon",
-                "below_horizon": "Onder de horizon"
-            }
-        },
-        "_": {
-            "state": {
-                "on": "Boven de horizon",
-                "off": "Onder de horizon",
-                "above_horizon": "Boven de horizon",
-                "below_horizon": "Onder de horizon"
-            }
-        },
-        "sun": {
-            "name": "Zon",
-            "state": {
-                "on": "Boven de horizon",
-                "off": "Onder de horizon",
-                "above_horizon": "Boven de horizon",
-                "below_horizon": "Onder de horizon"
-            }
-        },
-        "Zon": {
-            "name": "Zon",
-            "state": {
-                "on": "Boven de horizon",
-                "off": "Onder de horizon",
-                "above_horizon": "Boven de horizon",
-                "below_horizon": "Onder de horizon"
+        "sensor": {
+            "dauwp": {
+                "name": "Dauwpunt"
+            },
+            "gr": {
+                "name": "Globale stralingsintensiteit"
+            },
+            "gtemp": {
+                "name": "Gevoelstemperatuur"
+            },
+            "luchtd": {
+                "name": "Luchtdruk"
+            },
+            "lv": {
+                "name": "Luchtvochtigheid"
+            },
+            "max_temp_today": {
+                "name": "Max temperatuur vandaag"
+            },
+            "max_temp_tomorrow": {
+                "name": "Max temperatuur morgen"
+            },
+            "min_temp_today": {
+                "name": "Min temperatuur vandaag"
+            },
+            "min_temp_tomorrow": {
+                "name": "Min temperatuur morgen"
+            },
+            "neersl_perc_dag_today": {
+                "name": "Neerslag vandaag"
+            },
+            "neersl_perc_dag_tomorrow": {
+                "name": "Neerslag morgen"
+            },
+            "plaats": {
+                "name": "Plaats"
+            },
+            "rest_verz": {
+                "name": "Resterende API verzoeken"
+            },
+            "samenv": {
+                "name": "Omschrijving"
+            },
+            "temp": {
+                "name": "Temperatuur"
+            },
+            "timestamp": {
+                "name": "Laatste update"
+            },
+            "verw": {
+                "name": "Weersverwachting"
+            },
+            "windkmh": {
+                "name": "Windsnelheid",
+                "state_attributes": {
+                    "bearing": {
+                        "name": "Richting"
+                    },
+                    "degree": {
+                        "name": "Graden"
+                    },
+                    "beaufort": {
+                        "name": "Beaufort"
+                    },
+                    "knots": {
+                        "name": "Knopen"
+                    }
+                }
+            },
+            "wrschklr": {
+                "name": "Weercode",
+                "state": {
+                    "groen": "Groen",
+                    "geel": "Geel",
+                    "oranje": "Oranje",
+                    "rood": "Rood"
+                }
+            },
+            "zicht": {
+                "name": "Zicht"
             }
         }
-    },
-    "title": "KNMI Weer"
+    }
 }

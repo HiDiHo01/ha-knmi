@@ -1,28 +1,35 @@
 """Constants for knmi."""
 # const.py
 
-import logging
 from datetime import timedelta
 from typing import Any, Final
 
 from homeassistant.components.binary_sensor import BinarySensorDeviceClass
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
-from homeassistant.components.weather import (ATTR_CONDITION_CLEAR_NIGHT,
-                                              ATTR_CONDITION_CLOUDY,
-                                              ATTR_CONDITION_FOG,
-                                              ATTR_CONDITION_HAIL,
-                                              ATTR_CONDITION_LIGHTNING,
-                                              ATTR_CONDITION_LIGHTNING_RAINY,
-                                              ATTR_CONDITION_PARTLYCLOUDY,
-                                              ATTR_CONDITION_POURING,
-                                              ATTR_CONDITION_RAINY,
-                                              ATTR_CONDITION_SNOWY,
-                                              ATTR_CONDITION_SNOWY_RAINY,
-                                              ATTR_CONDITION_SUNNY,
-                                              ATTR_CONDITION_WINDY)
-from homeassistant.const import (DEGREE, PERCENTAGE, UnitOfLength,
-                                 UnitOfPressure, UnitOfSpeed,
-                                 UnitOfTemperature)
+from homeassistant.components.weather import (
+    ATTR_CONDITION_CLEAR_NIGHT,
+    ATTR_CONDITION_CLOUDY,
+    ATTR_CONDITION_FOG,
+    ATTR_CONDITION_HAIL,
+    ATTR_CONDITION_LIGHTNING,
+    ATTR_CONDITION_LIGHTNING_RAINY,
+    ATTR_CONDITION_PARTLYCLOUDY,
+    ATTR_CONDITION_POURING,
+    ATTR_CONDITION_RAINY,
+    ATTR_CONDITION_SNOWY,
+    ATTR_CONDITION_SNOWY_RAINY,
+    ATTR_CONDITION_SUNNY,
+    ATTR_CONDITION_WINDY,
+)
+from homeassistant.const import (
+    DEGREE,
+    PERCENTAGE,
+    Platform,
+    UnitOfLength,
+    UnitOfPressure,
+    UnitOfSpeed,
+    UnitOfTemperature,
+)
 
 # API
 API_ENDPOINT: Final[str] = "https://weerlive.nl/api/json-data-10min.php?key={}&locatie={},{}"
@@ -33,14 +40,13 @@ LIVEWEER_KEY: Final[str] = "liveweer"
 WIND_BEAUFORT: Final[str] = "Bft"
 
 # Base component constants.
-NAME: Final[str] = "KNMI"
-DOMAIN: Final[str] = "knmi"
-VERSION: Final[str] = "1.6.1"
+NAME: Final[str] = "KNMI2"
+DOMAIN: Final[str] = "knmi2"
+VERSION: Final[str] = "1.7.1"
 ATTRIBUTION: Final[str] = "Data provided by KNMI"
 
 # Defaults
 DEFAULT_NAME: Final[str] = NAME
-_LOGGER: logging.Logger = logging.getLogger(__name__)
 DEFAULT_AIR_PRESSURE_HPA: Final[int] = 1013
 
 # API and Data Refresh
@@ -51,10 +57,11 @@ SCAN_INTERVAL = timedelta(seconds=300)
 DATA_REFRESH_INTERVAL: Final[int] = 600
 
 # Platforms.
+SENSOR_DOMAIN: Final[str] = "sensor"
 BINARY_SENSOR: Final[str] = "binary_sensor"
 SENSOR: Final[str] = "sensor"
 WEATHER: Final[str] = "weather"
-PLATFORMS: Final[list[str]] = [BINARY_SENSOR, SENSOR, WEATHER]
+PLATFORMS: Final[list[str]] = [Platform.BINARY_SENSOR, Platform.SENSOR, Platform.WEATHER]
 
 # Icon templates (not in use)
 ICON_TEMPLATE: Final[str] = "mdi:weather-{}"
@@ -98,6 +105,12 @@ SENSORS: Final[list] = [
         "name": "Plaats",
         "icon": "mdi:map-marker",
         "key": "plaats",
+        "attributes": [
+            {
+                "name": "Location",
+                "key": "Location",
+            },
+        ],
     },
     {
         "name": "Korte dagverwachting",
@@ -153,15 +166,15 @@ SENSORS: Final[list] = [
         "name": "Windrichting",
         "icon": "mdi:compass-outline",
         "key": "windr",
-        "state_class": SensorStateClass.MEASUREMENT
+        "state_class": SensorStateClass.MEASUREMENT,
     },
     {
         "name": "Windrichting graden",
         "unit_of_measurement": DEGREE,
         "icon": "mdi:compass-outline",
-        'device_class': 'direction',
+        'device_class': SensorDeviceClass.WIND_DIRECTION,
         "key": "windrgr",
-        "state_class": SensorStateClass.MEASUREMENT
+        "state_class": SensorStateClass.MEASUREMENT_ANGLE,
     },
     {
         "name": "Windsnelheid m/s",
@@ -334,19 +347,21 @@ WIND_DIRECTION_MAP: Final[dict[str, float | None]] = {
     "NNW": 337.5,
 }
 
+ICON_TYPE = "-thick"
+ICON_TYPE = ""
 # Define the wind directions and their corresponding icon names
 WIND_DIRECTIONS_ICON_MAP = {
-    0: 'arrow-down-thick',
-    45: 'arrow-bottom-left-thick',
-    90: 'arrow-left-thick',
-    135: 'arrow-top-left-thick',
-    180: 'arrow-up-thick',
-    225: 'arrow-top-right-thick',
-    270: 'arrow-right-thick',
-    315: 'arrow-bottom-right-thick',
+    0: 'arrow-down' + ICON_TYPE,
+    45: 'arrow-bottom-left' + ICON_TYPE,
+    90: 'arrow-left' + ICON_TYPE,
+    135: 'arrow-top-left' + ICON_TYPE,
+    180: 'arrow-up' + ICON_TYPE,
+    225: 'arrow-top-right' + ICON_TYPE,
+    270: 'arrow-right' + ICON_TYPE,
+    315: 'arrow-bottom-right' + ICON_TYPE,
 }
 
-TEMPERATURE_MAP: Final[dict[str, dict[str, any]]] = {
+TEMPERATURE_MAP: Final[dict[str, dict[str, object]]] = {
     "-30": {
         "range": (-30, -20),
         "short_description": "Extreem koud",
@@ -363,7 +378,7 @@ TEMPERATURE_MAP: Final[dict[str, dict[str, any]]] = {
         "description": "Voelt ijzig aan, ongemakkelijk, vooral bij wind."
     },
     "0": {
-        "range": (0, 10),
+        "range": (0, 5),
         "short_description": "Koud",
         "description": "Fris, maar comfortabel met de juiste kleding."
     },
@@ -414,7 +429,7 @@ TEMPERATURE_MAP: Final[dict[str, dict[str, any]]] = {
     },
 }
 
-TEMPERATURE_ALERT_MAP: Final[dict[str, dict[str, Any]]] = {
+TEMPERATURE_ALERT_MAP: Final[dict[str, dict[str, object]]] = {
     "geel_koud": {"range": (-5, 0), "description": "Code geel", "alert": "Code Geel: Vorstwaarschuwing voor lichte vorst"},
     "oranje_koud": {"range": (-10, -6), "description": "Code oranje", "alert": "Code Oranje: Vorstwaarschuwing voor matige vorst"},
     "rood_koud": {"range": (-50, -11), "description": "Code rood", "alert": "Code Rood: Vorstwaarschuwing voor strenge vorst"},
@@ -423,7 +438,7 @@ TEMPERATURE_ALERT_MAP: Final[dict[str, dict[str, Any]]] = {
     "rood_warm": {"range": (35, 40), "description": "Code rood", "alert": "Code Rood: Waarschuwing voor extreme hitte"},
 }
 
-AIR_PRESSURE_MAP: Final[dict[str, dict[str, Any]]] = {
+AIR_PRESSURE_MAP: Final[dict[str, dict[str, object]]] = {
     "extreem_laag": {"range": (900, 940), "short_description": "Extreem laag", "barometer": "Orkaan"},
     "zeer_laag": {"range": (940, 970), "short_description": "Zeer laag", "barometer": "Stormachtig"},
     "laag": {"range": (970, 990), "short_description": "Laag", "barometer": "Regenachtig"},
@@ -435,7 +450,7 @@ AIR_PRESSURE_MAP: Final[dict[str, dict[str, Any]]] = {
 }
 
 # Wind force mapping using Beaufort scale
-WIND_FORCE_MAP: Final[dict[int, dict[str, Any]]] = {
+WIND_FORCE_MAP: Final[dict[int, dict[str, object]]] = {
     0: {
         "windsnelheid_kmh": 0,
         "windsnelheid_ms": 0,
@@ -516,7 +531,7 @@ WIND_FORCE_MAP: Final[dict[int, dict[str, Any]]] = {
     }
 }
 
-HUMIDITY_MAP: Final[dict[str, dict[str, Any]]] = {
+HUMIDITY_MAP: Final[dict[str, dict[str, object]]] = {
     "ultra_low": {
         "range": (0, 10),
         "description": "Zeer lage luchtvochtigheid. Zeer droge lucht, kan ademhalingsongemakken veroorzaken.",
@@ -554,7 +569,7 @@ HUMIDITY_MAP: Final[dict[str, dict[str, Any]]] = {
     }
 }
 
-VISIBILITY_MAP: Final[dict[str, dict[str, Any]]] = {
+VISIBILITY_MAP: Final[dict[str, dict[str, object]]] = {
     "very_poor": {
         "range": (0, 1),
         "description": "Zeer slecht zicht. Bijna geen zichtbaarheid, gevaarlijk voor weggebruikers.",

@@ -2,14 +2,17 @@
 # entity.py
 
 import json
+import logging
 from datetime import datetime
 
 from homeassistant.helpers.device_registry import DeviceEntryType
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import (_LOGGER, AIR_PRESSURE_MAP, API_CONF_URL, ATTRIBUTION,
-                    DOMAIN, HUMIDITY_MAP, NAME, TEMPERATURE_MAP, VERSION,
-                    VISIBILITY_MAP, WIND_FORCE_MAP)
+from .const import (AIR_PRESSURE_MAP, API_CONF_URL, ATTRIBUTION, DOMAIN,
+                    HUMIDITY_MAP, NAME, TEMPERATURE_MAP, VISIBILITY_MAP,
+                    WIND_FORCE_MAP)
+
+_LOGGER: logging.Logger = logging.getLogger(__name__)
 
 
 class KnmiEntity(CoordinatorEntity):
@@ -17,7 +20,6 @@ class KnmiEntity(CoordinatorEntity):
 
     def __init__(self, coordinator, config_entry):
         super().__init__(coordinator)
-        self.coordinator = coordinator
         self.config_entry = config_entry
         self._timestamp: datetime | None = None
 
@@ -182,6 +184,7 @@ class KnmiEntity(CoordinatorEntity):
         for visibility_level, visibility_info in VISIBILITY_MAP.items():
             if visibility_info["range"][0] <= visibility < visibility_info["range"][1]:
                 return visibility_info["short_description"]
+
 
 testdata: dict[str, list[dict]] = {
     "liveweer": [
